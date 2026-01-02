@@ -86,10 +86,10 @@ export default function Login() {
             />
           </div>
 
-          <div className={styles["login-remember"]}>
+          {/* <div className={styles["login-remember"]}>
             <input type="checkbox" id="remember" />
             <label htmlFor="remember">Remember me</label>
-          </div>
+          </div> */}
 
           <button
             type="submit"

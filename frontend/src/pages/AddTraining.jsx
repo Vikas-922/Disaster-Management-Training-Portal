@@ -11,7 +11,7 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import Sidebar from "../components/Sidebar";
-import { trainingAPI } from "../utils/api";
+import { trainingAPI, uploadAPI } from "../utils/api";
 import statesDistrictsData from "../data/statesDistricts.json";
 import styles from "../styles/Form.module.css";
 
@@ -91,7 +91,7 @@ export default function AddTraining() {
   const [csvFile, setCsvFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const handleChange = (e) => {
     const { name, value } = e.target;
     // Reset district when state changes
@@ -120,24 +120,87 @@ export default function AddTraining() {
     setLoading(true);
 
     try {
+      // Upload photos through backend to Cloudinary if any
+      let photoUrls = [];
+      if (photos.length > 0) {
+        setUploadingPhotos(true);
+        const uploadResponse = await uploadAPI.uploadMultiple(
+          photos,
+          "training-photos"
+        );
+        setUploadingPhotos(false);
+
+        if (!uploadResponse.data.success) {
+          throw new Error(uploadResponse.data.error || "Photo upload failed");
+        }
+
+        photoUrls = uploadResponse.data.data.map((file) => ({
+          url: file.url,
+          publicId: file.publicId,
+          filename: file.filename, // Include filename from API response
+        }));
+      }
+
+      // Upload CSV file through backend to Cloudinary if any
+      let attendanceSheetData = null;
+      if (csvFile) {
+        setUploadingPhotos(true);
+        const csvUploadResponse = await uploadAPI.uploadSingle(
+          csvFile,
+          "training-attendance"
+        );
+        setUploadingPhotos(false);
+
+        if (!csvUploadResponse.data.success) {
+          throw new Error(csvUploadResponse.data.error || "CSV upload failed");
+        }
+
+        attendanceSheetData = {
+          url: csvUploadResponse.data.data.url,
+          publicId: csvUploadResponse.data.data.publicId,
+          filename: csvUploadResponse.data.data.filename, // Use filename from API response
+        };
+      }
+
       const formPayload = new FormData();
       Object.keys(formData).forEach((key) => {
         formPayload.append(key, formData[key]);
       });
-      photos.forEach((photo, idx) => {
-        formPayload.append(`photos`, photo);
-      });
-      if (csvFile) formPayload.append("attendanceSheet", csvFile);
+
+      // Add photo URLs as JSON string
+      if (photoUrls.length > 0) {
+        formPayload.append(
+          "photos",
+          JSON.stringify(
+            photoUrls.map((p) => ({
+              url: p.url,
+              publicId: p.publicId,
+              filename: p.filename,
+            }))
+          )
+        );
+      }
+
+      // Add attendance sheet URL
+      if (attendanceSheetData) {
+        formPayload.append(
+          "attendanceSheet",
+          JSON.stringify(attendanceSheetData)
+        );
+      }
 
       await trainingAPI.create(formPayload);
       alert("Training event submitted successfully!");
       navigate("/partner/my-trainings");
     } catch (err) {
       setError(
-        err.response?.data?.message || "Failed to submit training event"
+        err.response?.data?.message ||
+          err.message ||
+          "Failed to submit training event"
       );
     } finally {
       setLoading(false);
+      setUploadingPhotos(false);
     }
   };
 
@@ -417,8 +480,13 @@ export default function AddTraining() {
                       <div
                         className={styles["upload-area"]}
                         onClick={() =>
+                          !uploadingPhotos &&
                           document.getElementById("photo-input").click()
                         }
+                        style={{
+                          cursor: uploadingPhotos ? "not-allowed" : "pointer",
+                          opacity: uploadingPhotos ? 0.6 : 1,
+                        }}
                       >
                         <div className={styles["upload-area-icon"]}>
                           <CiCamera size={40} />
@@ -427,7 +495,9 @@ export default function AddTraining() {
                           Event Photos/Videos
                         </div>
                         <div className={styles["upload-area-subtitle"]}>
-                          Drag and drop or click to upload
+                          {uploadingPhotos
+                            ? "Uploading to cloud..."
+                            : "Drag and drop or click to upload"}
                         </div>
                         <input
                           id="photo-input"
@@ -436,6 +506,7 @@ export default function AddTraining() {
                           accept="image/*,video/*"
                           onChange={handlePhotoUpload}
                           className={styles["upload-area-input"]}
+                          disabled={uploadingPhotos}
                         />
                       </div>
                       {photos.length > 0 && (
@@ -449,6 +520,7 @@ export default function AddTraining() {
                                 type="button"
                                 className={styles["file-item-remove"]}
                                 onClick={() => removePhoto(idx)}
+                                disabled={uploadingPhotos}
                               >
                                 ✕
                               </button>
@@ -508,6 +580,7 @@ export default function AddTraining() {
                       styles["form-btn"] + " " + styles["form-btn-cancel"]
                     }
                     onClick={() => navigate("/partner/dashboard")}
+                    disabled={loading || uploadingPhotos}
                   >
                     Cancel
                   </button>
@@ -516,9 +589,13 @@ export default function AddTraining() {
                     className={
                       styles["form-btn"] + " " + styles["form-btn-submit"]
                     }
-                    disabled={loading}
+                    disabled={loading || uploadingPhotos}
                   >
-                    {loading ? "Submitting..." : "Submit for Approval"}
+                    {loading
+                      ? "Submitting..."
+                      : uploadingPhotos
+                      ? "Uploading photos..."
+                      : "Submit for Approval"}
                   </button>
                 </div>
               </form>

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CiFileOn } from "react-icons/ci";
-import { authAPI } from "../utils/api";
+import { authAPI, uploadAPI } from "../utils/api";
+import statesDistrictsData from "../data/statesDistricts.json";
 import styles from "../styles/Register.module.css";
 
 export default function Register() {
@@ -21,14 +22,28 @@ export default function Register() {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [districts, setDistricts] = useState([]);
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+
+    if (name === "state") {
+      // When state changes, update districts and reset district selection
+      const selectedStateDistricts = statesDistrictsData.districts[value] || [];
+      setDistricts(selectedStateDistricts);
+      setFormData((prev) => ({ ...prev, [name]: value, district: "" }));
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      setError("");
+    }
   };
 
   const handleDragOver = (e) => {
@@ -55,15 +70,36 @@ export default function Register() {
       return;
     }
 
+    if (!file) {
+      setError("Please upload authorization documents");
+      return;
+    }
+
     setLoading(true);
     try {
+      // Upload file through backend to Cloudinary
+      setUploadingFile(true);
+      const uploadResponse = await uploadAPI.uploadSingle(
+        file,
+        "partner-documents"
+      );
+      setUploadingFile(false);
+
+      if (!uploadResponse.data.success) {
+        throw new Error(uploadResponse.data.error || "File upload failed");
+      }
+
+      const { url, publicId } = uploadResponse.data.data;
+
+      // Prepare form data with Cloudinary URL
       const data = new FormData();
       Object.keys(formData).forEach((key) => {
         if (key !== "confirmPassword") {
           data.append(key, formData[key]);
         }
       });
-      if (file) data.append("document", file);
+      data.append("documentUrl", url);
+      data.append("documentPublicId", publicId);
 
       await authAPI.register(data);
       alert(
@@ -72,10 +108,13 @@ export default function Register() {
       navigate("/login?role=partner");
     } catch (err) {
       setError(
-        err.response?.data?.message || "Registration failed. Please try again."
+        err.response?.data?.message ||
+          err.message ||
+          "Registration failed. Please try again."
       );
     } finally {
       setLoading(false);
+      setUploadingFile(false);
     }
   };
 
@@ -130,10 +169,11 @@ export default function Register() {
                 required
               >
                 <option value="">Select State</option>
-                <option value="ap">Andhra Pradesh</option>
-                <option value="ar">Arunachal Pradesh</option>
-                <option value="as">Assam</option>
-                {/* Add more states */}
+                {statesDistrictsData.states.map((state) => (
+                  <option key={state.value} value={state.value}>
+                    {state.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -141,12 +181,20 @@ export default function Register() {
           <div className={styles["register-form-row"]}>
             <div className={styles["register-form-group"]}>
               <label>District</label>
-              <input
-                type="text"
+              <select
                 name="district"
                 value={formData.district}
                 onChange={handleChange}
-              />
+                disabled={!formData.state}
+                required
+              >
+                <option value="">Select District</option>
+                {districts.map((district) => (
+                  <option key={district} value={district}>
+                    {district}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className={styles["register-form-group"]}>
               <label>Address</label>
@@ -229,13 +277,21 @@ export default function Register() {
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                onClick={() => document.getElementById("doc-input").click()}
+                onClick={() =>
+                  !uploadingFile && document.getElementById("doc-input").click()
+                }
+                style={{
+                  cursor: uploadingFile ? "not-allowed" : "pointer",
+                  opacity: uploadingFile ? 0.6 : 1,
+                }}
               >
                 <div className={styles["upload-box-icon"]}>
                   <CiFileOn size={40} />
                 </div>
                 <div className={styles["upload-box-text"]}>
-                  Drag and drop or click to upload
+                  {uploadingFile
+                    ? "Uploading..."
+                    : "Drag and drop or click to upload"}
                 </div>
                 <input
                   id="doc-input"
@@ -243,6 +299,7 @@ export default function Register() {
                   onChange={handleFileChange}
                   accept=".pdf"
                   className={styles["file-input"]}
+                  disabled={uploadingFile}
                 />
               </div>
               {file && (
@@ -256,9 +313,13 @@ export default function Register() {
           <button
             type="submit"
             className={styles["register-btn"]}
-            disabled={loading}
+            disabled={loading || uploadingFile}
           >
-            {loading ? "Registering..." : "Register Organization"}
+            {loading
+              ? "Registering..."
+              : uploadingFile
+              ? "Uploading document..."
+              : "Register Organization"}
           </button>
         </form>
 

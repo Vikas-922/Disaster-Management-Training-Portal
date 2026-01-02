@@ -106,6 +106,8 @@ router.post("/", auth, async (req, res) => {
       trainerName,
       trainerEmail,
       participantsCount,
+      photos,
+      attendanceSheet,
     } = req.body;
 
     const training = new TrainingEvent({
@@ -126,6 +128,32 @@ router.post("/", auth, async (req, res) => {
       partnerId: req.user.userId,
       status: "pending",
     });
+
+    // Parse and add photos if provided
+    if (photos) {
+      try {
+        const photoArray = JSON.parse(photos);
+        training.photos = photoArray.map((photo) => ({
+          url: photo.url,
+          filename: photo.filename || photo.publicId || "photo",
+        }));
+      } catch (e) {
+        console.log("Photos parsing error:", e.message);
+      }
+    }
+
+    // Parse and add attendance sheet if provided
+    if (attendanceSheet) {
+      try {
+        const sheetData = JSON.parse(attendanceSheet);
+        training.attendanceSheet = {
+          url: sheetData.url,
+          filename: sheetData.filename || "attendance",
+        };
+      } catch (e) {
+        console.log("Attendance sheet parsing error:", e.message);
+      }
+    }
 
     await training.save();
 

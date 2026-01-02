@@ -45,12 +45,22 @@ export const partnerAPI = {
 };
 
 export const uploadAPI = {
-  upload: (files) => {
+  uploadSingle: (file, folder = "training-management") => {
     const formData = new FormData();
-    files.forEach((file, index) => {
-      formData.append(`files`, file);
+    formData.append("file", file);
+    formData.append("folder", folder);
+    return api.post("/upload/single", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
     });
-    return api.post("/upload", formData, {
+  },
+
+  uploadMultiple: (files, folder = "training-management") => {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append("files", file);
+    });
+    formData.append("folder", folder);
+    return api.post("/upload/multiple", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
